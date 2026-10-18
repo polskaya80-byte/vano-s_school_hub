@@ -34,16 +34,27 @@ db = load_data()
 # 2. НАЛАШТУВАННЯ GEMINI API
 # ---------------------------------------------------------
 def get_gemini_model():
-    # Отримання ключа з Streamlit Secrets або з введення користувачем
     api_key = st.secrets.get("GEMINI_API_KEY", None)
     if not api_key:
         api_key = st.session_state.get("user_gemini_key", "")
     
     if api_key:
         genai.configure(api_key=api_key)
-        return genai.GenerativeModel('gemini-2.5-flash')
+        # 1. Спроба автоматично знайти найновішу активну модель Flash від Google
+        try:
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods and 'flash' in m.name:
+                    return genai.GenerativeModel(m.name)
+        except Exception:
+            pass
+        
+        # 2. Резервний перебір версій, якщо список моделей недоступний
+        for name in ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-flash']:
+            try:
+                return genai.GenerativeModel(name)
+            except Exception:
+                continue
     return None
-
 # ---------------------------------------------------------
 # 3. БОКОВЕ МЕНЮ (НАВІГАЦІЯ)
 # ---------------------------------------------------------
