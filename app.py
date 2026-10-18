@@ -31,19 +31,22 @@ def save_data(data):
 db = load_data()
 
 # ---------------------------------------------------------
-# 2. ТЕЛЕГРАМ СПОВІЩЕННЯ
+# 2. ТЕЛЕГРАМ СПОВІЩЕННЯ З ДІАГНОСТИКОЮ ПОМИЛОК
 # ---------------------------------------------------------
 def send_telegram_notification(subject, topic, test_mode, score_pct, score_text, completed_at):
     bot_token = st.secrets.get("TELEGRAM_BOT_TOKEN", None) or st.session_state.get("user_tg_token", "")
     chat_id = st.secrets.get("TELEGRAM_CHAT_ID", None) or st.session_state.get("user_tg_chat_id", "")
     
     if not bot_token or not chat_id:
-        return
+        return False, "Ключі Telegram не знайдені в Secrets або налаштуваннях."
+    
+    clean_topic = str(topic).replace("*", "").replace("_", "").replace("`", "")
+    clean_subject = str(subject).replace("*", "").replace("_", "")
     
     msg = (
         f"🎓 *ЗВІТ ПРО ВИКОНАННЯ УРОКУ*\n\n"
-        f"📚 *Предмет:* {subject}\n"
-        f"📖 *Тема:* {topic}\n"
+        f"📚 *Предмет:* {clean_subject}\n"
+        f"📖 *Тема:* {clean_topic}\n"
         f"🏋️ *Режим:* {test_mode}\n"
         f"📊 *Результат:* {score_pct}% ({score_text})\n"
         f"⏰ *Час здачі:* {completed_at}"
@@ -56,9 +59,15 @@ def send_telegram_notification(subject, topic, test_mode, score_pct, score_text,
         "parse_mode": "Markdown"
     }
     try:
-        requests.post(url, json=payload, timeout=5)
-    except Exception:
-        pass
+        response = requests.post(url, json=payload, timeout=5)
+        res_data = response.json()
+        if response.status_code == 200 and res_data.get("ok"):
+            return True, "Успішно"
+        else:
+            err_desc = res_data.get("description", response.text)
+            return False, f"{err_desc}"
+    except Exception as e:
+        return False, f"Помилка з'єднання: {e}"
 
 # ---------------------------------------------------------
 # 3. ЗЧИТУВАННЯ PDF
@@ -293,7 +302,7 @@ st.sidebar.title("🎓 Навчальний Хаб")
 role = st.sidebar.radio("Оберіть режим:", ["🎓 Кабінет Учня", "👩‍🏫 Кабінет Мами"])
 
 st.sidebar.markdown("---")
-st.sidebar.info("Система сімейного навчання 9 класу v2.6 (PDF & Telegram Pro)")
+st.sidebar.info("Система сімейного навчання 9 класу v2.7 (Telegram Diagnostic)")
 
 # =========================================================
 # РЕЖИМ: КАБІНЕТ МАМИ (ГЕНЕРАЦІЯ ТА МОНІТОРИНГ)
@@ -316,7 +325,7 @@ if role == "👩‍🏫 Кабінет Мами":
                 "Історія України", "Всесвітня історія", "Українська мова", 
                 "Українська література", "Англійська мова", "Географія", "Інформатика"
             ])
-            lesson_date = st.date_input("Дата проведення:", datetime.today())
+            lesson_date = st.date_input("Дата проведения:", datetime.today())
         
         with col2:
             topic = st.text_input("Тема уроку (з календарного плану):", placeholder="наприклад: Чинники розміщення виробництва")
@@ -652,8 +661,8 @@ else:
                         db["results"].append(result_record)
                         save_data(db)
                         
-                        # ВІДПРАВКА В ТЕЛЕГРАМ
-                        send_telegram_notification(
+                        # ВІДПРАВКА В ТЕЛЕГРАМ З ДІАГНОСТИКОЮ
+                        tg_ok, tg_err = send_telegram_notification(
                             current_lesson["subject"], 
                             current_lesson["topic"], 
                             current_lesson.get("test_mode", "Контрольний"), 
@@ -663,4 +672,7 @@ else:
                         )
                         
                         st.balloons()
-                        st.success(f"🎉 Урок здано! Ваш результат: {correct_count} з {total_q} ({score_pct}%). Сповіщення надіслано в Telegram!")
+                        if tg_ok:
+                            st.success(f"🎉 Урок здано! Ваш результат: {correct_count} з {total_q} ({score_pct}%). Сповіщення надіслано в Telegram! 📲")
+                        else:
+                            st.warning(f"🎉 Урок здано! Ваш результат: {correct_count} з {total_q} ({score_pct}%).\n\n⚠️ Повідомлення в Telegram не відправилось: {tg_err}")
