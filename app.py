@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import os
 import re
+import random
 from datetime import datetime
 import pandas as pd
 import google.generativeai as genai
@@ -66,10 +67,10 @@ st.markdown("""
         border: 3px dashed #8d6e63 !important;
         border-radius: 20px !important;
         box-shadow: 6px 6px 0px rgba(141, 110, 99, 0.2) !important;
-        padding: 30px !important;
+        padding: 25px !important;
     }
 
-    /* Стилізація радіокнопок у тесті (крупні, зручні варіанти) */
+    /* Стилізація варіантів у тесті */
     div[role="radiogroup"] label {
         background-color: #fcf8f2 !important;
         border: 2px solid #d7ccc8 !important;
@@ -105,6 +106,16 @@ st.markdown("""
         color: #ffffff !important;
         border-bottom: none !important;
     }
+
+    /* Дудл-карточки для дашборду */
+    .doodle-card {
+        background-color: #fffdf9;
+        border: 2px dashed #8d6e63;
+        border-radius: 16px;
+        padding: 16px;
+        margin-bottom: 15px;
+        box-shadow: 3px 3px 0px rgba(141, 110, 99, 0.15);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -123,9 +134,40 @@ def save_data(data):
 db = load_data()
 
 # ---------------------------------------------------------
-# 2. ТЕЛЕГРАМ СПОВІЩЕННЯ
+# 2. МОТИВАЦІЙНІ ЦИТАТИ ТА ЛАЙФХАКИ ДЛЯ КУКУХИ
 # ---------------------------------------------------------
-def send_telegram_notification(subject, topic, test_mode, score_pct, score_text, completed_at):
+MOTIVATIONAL_QUOTES = [
+    "«Світ великий і дивний, але геометрію за тебе ніхто не складе.» — Мудрість Зони S.T.A.L.K.E.R.",
+    "«Важко навчатися? Зате в Minecraft потім побудуєш атомний коллайдер!»",
+    "«Навіть Тоторо робить перерви на сон. Бережи кукуху, роби паузи!» — Studio Ghibli",
+    "«Вчитися — це як качати перк у гринді: спочатку нудно, а потім ти оверпауер!»",
+    "«Пригода на 20 хвилин, казав Рік... Але цей конспект ми закриємо за 10!» — Рік і Морті",
+    "«Знання — це твій особистий артефакт, який не фонить радіацією.»",
+    "«Не бійся робити помилки. Навіть у коді Minecraft спочатку були баги з кріперами!»"
+]
+
+TEEN_LIFEHACKS = [
+    "🧠 **Лайфхак для кукухи:** Метод Помодоро — 25 хв вчишся, 5 хв тупиш у меми. Мозок перестає закипати!",
+    "🎧 **Лайфхак для фокусу:** Ввімкни Lofi-хіп-хоп або саундтрек із Minecraft/Ghibli без слів — рівень концентрації +40%.",
+    "💧 **Лайфхак для бадьорості:** Зроби 3 глибоких видихи та випий склянку води. Вода змиває ментальний дебаф на 15%.",
+    "👀 **Лайфхак для очей:** Правило 20-20-20: кожні 20 хвилин дивись 20 секунд у вікно на щось зелене.",
+    "🍫 **Лайфхак для мотивації:** Пообіцяй собі смаколик чи 15 хвилин катки одразу після закриття цього тесту!"
+]
+
+def get_daily_quote_and_hack(date_str):
+    try:
+        seed = int(datetime.strptime(date_str, "%Y-%m-%d").timestamp())
+    except Exception:
+        seed = 42
+    rnd = random.Random(seed)
+    q = rnd.choice(MOTIVATIONAL_QUOTES)
+    h = rnd.choice(TEEN_LIFEHACKS)
+    return q, h
+
+# ---------------------------------------------------------
+# 3. ТЕЛЕГРАМ СПОВІЩЕННЯ
+# ---------------------------------------------------------
+def send_telegram_notification(subject, topic, test_mode, score_pct, score_text, completed_at, day_progress_str=""):
     bot_token = str(st.secrets.get("TELEGRAM_BOT_TOKEN", None) or st.session_state.get("user_tg_token", "")).strip()
     chat_id = str(st.secrets.get("TELEGRAM_CHAT_ID", None) or st.session_state.get("user_tg_chat_id", "")).strip()
     
@@ -140,7 +182,8 @@ def send_telegram_notification(subject, topic, test_mode, score_pct, score_text,
         f"📚 *Предмет:* {clean_subject}\n"
         f"📖 *Тема:* {clean_topic}\n"
         f"🏋️ *Режим:* {test_mode}\n"
-        f"📊 *Результат:* {score_pct}% ({score_text})\n"
+        f"📊 *Результат тесту:* {score_pct}% ({score_text})\n"
+        f"📈 *Прогрес за день:* {day_progress_str}\n"
         f"⏰ *Час здачі:* {completed_at}"
     )
     
@@ -162,7 +205,7 @@ def send_telegram_notification(subject, topic, test_mode, score_pct, score_text,
         return False, f"Помилка з'єднання: {e}"
 
 # ---------------------------------------------------------
-# 3. ЗЧИТУВАННЯ PDF
+# 4. ЗЧИТУВАННЯ PDF
 # ---------------------------------------------------------
 def extract_text_from_pdf(uploaded_file):
     try:
@@ -178,7 +221,7 @@ def extract_text_from_pdf(uploaded_file):
         return ""
 
 # ---------------------------------------------------------
-# 4. ТЕМАТИЧНІ ПРЕСЕТИ
+# 5. ТЕМАТИЧНІ ПРЕСЕТИ
 # ---------------------------------------------------------
 THEMES = {
     "🌿 Затишний Скетчбук (Коричневий-Зелений)": {
@@ -220,7 +263,7 @@ THEMES = {
 }
 
 # ---------------------------------------------------------
-# 5. РОЗУМНА ГЕНЕРАЦІЯ
+# 6. РОЗУМНА ГЕНЕРАЦІЯ
 # ---------------------------------------------------------
 def generate_lesson_with_fallback(prompt, api_key):
     genai.configure(api_key=api_key)
@@ -239,15 +282,13 @@ def generate_lesson_with_fallback(prompt, api_key):
     raise last_error
 
 # ---------------------------------------------------------
-# 6. ВІДЖЕТИ ВІДЕО ТА ПРЕЗЕНТАЦІЙ (NOTEBOOKLM LEVEL)
+# 7. ВІДЖЕТИ ВІДЕО ТА ПРЕЗЕНТАЦІЙ
 # ---------------------------------------------------------
 def render_smart_video(url):
     if not url or not url.strip():
         return
     
     clean_url = url.strip()
-    
-    # YouTube Normalization
     yt_match = re.search(r'(?:youtu\.be/|youtube\.com/(?:embed/|v/|watch\?v=|shorts/))([\w-]{11})', clean_url)
     if yt_match:
         yt_id = yt_match.group(1)
@@ -428,7 +469,7 @@ def render_flashcards_html(flashcards, theme_key):
     return html_code
 
 # ---------------------------------------------------------
-# 7. БОКОВЕ МЕНЮ (НАВІГАЦІЯ)
+# 8. БОКОВЕ МЕНЮ (НАВІГАЦІЯ)
 # ---------------------------------------------------------
 st.sidebar.title("🦊 RudaFox Hub")
 role = st.sidebar.radio(
@@ -437,7 +478,7 @@ role = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("Затишний сімейний навчальний простір v3.2 (NotebookLM & Enhanced UI)")
+st.sidebar.info("Затишний сімейний навчальний простір v3.5 (Gamified Dashboard)")
 
 # =========================================================
 # РЕЖИМ: МІСЦЕ СИЛИ RUDAFOX
@@ -460,7 +501,7 @@ if role == "🦊 Місце сили RudaFox":
                 "Історія України", "Всесвітня історія", "Українська мова", 
                 "Українська література", "Англійська мова", "Географія", "Інформатика"
             ])
-            lesson_date = st.date_input("Дата проведення:", datetime.today())
+            lesson_date = st.date_input("Дата проведения:", datetime.today())
         
         with col2:
             topic = st.text_input("Тема уроку (з календарного плану):", placeholder="наприклад: Чинники розміщення виробництва")
@@ -697,123 +738,257 @@ else:
     if not db["lessons"]:
         st.warning("Наразі немає створених уроків. Зазирни пізніше або попроси RudaFox додати уроки!")
     else:
-        available_dates = sorted(list(set([l["date"] for l in db["lessons"]])), reverse=True)
-        selected_date = st.selectbox("📅 Оберіть дату навчання:", available_dates)
+        tab_student_daily, tab_student_progress = st.tabs(["🎯 Квести Дня & Уроки", "📊 Мій Супер-Прогрес"])
         
-        day_lessons = [l for l in db["lessons"] if l["date"] == selected_date]
-        lesson_subjects = [l["subject"] for l in day_lessons]
-        
-        selected_subject = st.radio("📚 Оберіть предмет:", lesson_subjects, horizontal=True)
-        
-        current_lesson = next((l for l in day_lessons if l["subject"] == selected_subject), None)
-        
-        if current_lesson:
-            theme_key = current_lesson.get("theme", "🌿 Затишний Скетчбук (Коричневий-Зелений)")
-            mode_badge = "🏋️ Тренувальний урок (із підказками)" if current_lesson.get("test_mode") == "Тренувальний" else "🎯 Контрольний урок"
+        # -------------------------------------------------
+        # ВКЛАДКА 1: КВЕСТИ ДНЯ ТА ДАШБОРД
+        # -------------------------------------------------
+        with tab_student_daily:
+            available_dates = sorted(list(set([l["date"] for l in db["lessons"]])), reverse=True)
+            selected_date = st.selectbox("📅 Оберіть дату навчання:", available_dates)
             
-            st.markdown(f"## {current_lesson['subject']}: {current_lesson['topic']}")
-            st.caption(f"Стиль матеріалів: **{theme_key}** | Режим: **{mode_badge}**")
+            day_lessons = [l for l in db["lessons"] if l["date"] == selected_date]
+            total_day_count = len(day_lessons)
             
-            already_done = next((r for r in db["results"] if r.get("lesson_id") == current_lesson["id"]), None)
-            if already_done:
-                st.success(f"✅ Цей урок вже виконано! Твій результат: {already_done['score_percent']}% ({already_done['score_text']})")
+            # Обчислення виконання на обрану дату
+            completed_ids = [r["lesson_id"] for r in db["results"]]
+            done_day_count = sum(1 for l in day_lessons if l["id"] in completed_ids)
+            pct_done = int((done_day_count / total_day_count) * 100) if total_day_count > 0 else 0
+            
+            # Цитати та лайфхаки
+            quote, hack = get_daily_quote_and_hack(selected_date)
+            
+            # Гуморний статус
+            if pct_done == 0:
+                status_msg = "🧟 **Статус Зони:** Борги висять, як ментальний дебаф! Час розміновувати першу таску."
+                status_color = "warning"
+            elif pct_done < 50:
+                status_msg = "🐢 **Перший квест закрито!** Але борги все ще дивляться на тебе з докором."
+                status_color = "info"
+            elif pct_done < 100:
+                status_msg = "🏃💨 **Екватор подолано!** Ще трохи — і чистий сейв та воля!"
+                status_color = "info"
+            else:
+                status_msg = "🎉 **АБСОЛЮТНИЙ СЕЙВ!** Всі таски закриті, кукуха в безпеці, RudaFox пишається!"
+                status_color = "success"
+                
+            st.markdown(f"""
+            <div class="doodle-card">
+                <h3 style="margin-top:0;">📜 Мудрість Дня & Підтримка Кукухи</h3>
+                <p style="font-size:16px; font-style:italic; color:#2e4a32;">{quote}</p>
+                <hr style="border:0; border-top:1px dashed #8d6e63; margin:10px 0;">
+                <p style="font-size:14px; margin-bottom:0;">{hack}</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.subheader(f"📊 Прогрес за {selected_date}: {done_day_count} з {total_day_count} уроків ({pct_done}%)")
+            st.progress(pct_done / 100.0)
+            
+            if status_color == "success":
+                st.success(status_msg)
+            elif status_color == "warning":
+                st.warning(status_msg)
+            else:
+                st.info(status_msg)
             
             st.markdown("---")
+            st.subheader("📋 Чеклист запланованого на цей день:")
             
-            # 1. ПРЕЗЕНТАЦІЯ (NOTEBOOKLM / AI)
-            slides = current_lesson.get("slides", [])
-            ext_pres = current_lesson.get("external_pres_url", "")
-            if slides or ext_pres:
-                st.subheader("💻 1. Інтерактивна слайд-презентація")
-                pres_html = render_presentation_html(slides, ext_pres, theme_key)
-                if pres_html:
-                    st.components.v1.html(pres_html, height=420)
-            
-            # 2. ТЕОРІЯ
-            st.subheader("📖 2. Теоретичний конспект")
-            st.markdown(current_lesson["summary"])
-            
-            # 3. ВІДЕО / ПОСИЛАННЯ (РОЗУМНИЙ ПЛЕЄР)
-            if current_lesson.get("video_url"):
-                st.subheader("🎬 3. Навчальне відео / Матеріали")
-                render_smart_video(current_lesson["video_url"])
-            
-            # 4. ФЛЕШКАРТКИ
-            flashcards = current_lesson.get("flashcards", [])
-            if flashcards:
-                st.subheader("🎴 4. Інтерактивні флешкартки")
-                flashcards_html = render_flashcards_html(flashcards, theme_key)
-                st.components.v1.html(flashcards_html, height=340)
-            
-            # 5. ТЕСТ (ЗБІЛЬШЕНИЙ, ЗРУЧНИЙ БЛОК)
-            st.subheader("📝 5. Тест для перевірки знань")
-            
-            quiz = current_lesson.get("quiz", [])
-            user_answers = {}
-            
-            if not quiz:
-                st.info("Для цього уроку немає тестів.")
-            else:
-                with st.form(key=f"quiz_form_{current_lesson['id']}"):
-                    for idx, q in enumerate(quiz):
-                        st.markdown(f"#### ❓ Питання {idx+1}: {q['question']}")
-                        
-                        if current_lesson.get("test_mode") == "Тренувальний" and q.get("hint"):
-                            with st.expander("💡 Отримати логічну підказку / натяк"):
-                                st.info(q["hint"])
-                        
-                        user_answers[idx] = st.radio(
-                            f"Оберіть один із варіантів відповідей:", 
-                            q['options'], 
-                            key=f"q_{current_lesson['id']}_{idx}",
-                            index=None
-                        )
-                        st.markdown("---")
-                    
-                    submit_button = st.form_submit_button("🚀 Завершити та здати урок", type="primary")
+            checklist_data = []
+            for l in day_lessons:
+                res = next((r for r in db["results"] if r.get("lesson_id") == l["id"]), None)
+                if res:
+                    st_text = f"✅ Виконано ({res['score_percent']}%)"
+                    score_val = res['score_text']
+                else:
+                    st_text = "⏳ Висить у боргах"
+                    score_val = "—"
                 
-                if submit_button:
-                    if None in user_answers.values():
-                        st.warning("⚠️ Будь ласка, дай відповідь на всі питання тесту перед здачею!")
-                    else:
-                        correct_count = 0
+                checklist_data.append({
+                    "Предмет": l["subject"],
+                    "Тема": l["topic"],
+                    "Режим": l.get("test_mode", "Контрольний"),
+                    "Статус": st_text,
+                    "Результат": score_val
+                })
+            
+            st.dataframe(pd.DataFrame(checklist_data), use_container_width=True)
+            
+            st.markdown("---")
+            st.subheader("📚 Вибір уроку для проходження:")
+            
+            lesson_subjects = [l["subject"] for l in day_lessons]
+            selected_subject = st.radio("Оберіть предмет:", lesson_subjects, horizontal=True)
+            current_lesson = next((l for l in day_lessons if l["subject"] == selected_subject), None)
+            
+            if current_lesson:
+                theme_key = current_lesson.get("theme", "🌿 Затишний Скетчбук (Коричневий-Зелений)")
+                mode_badge = "🏋️ Тренувальний урок (із підказками)" if current_lesson.get("test_mode") == "Тренувальний" else "🎯 Контрольний урок"
+                
+                st.markdown(f"### {current_lesson['subject']}: {current_lesson['topic']}")
+                st.caption(f"Стиль матеріалів: **{theme_key}** | Режим: **{mode_badge}**")
+                
+                already_done = next((r for r in db["results"] if r.get("lesson_id") == current_lesson["id"]), None)
+                if already_done:
+                    st.success(f"✅ Цей урок вже виконано! Твій результат: {already_done['score_percent']}% ({already_done['score_text']})")
+                
+                st.markdown("---")
+                
+                # 1. ПРЕЗЕНТАЦІЯ
+                slides = current_lesson.get("slides", [])
+                ext_pres = current_lesson.get("external_pres_url", "")
+                if slides or ext_pres:
+                    st.subheader("💻 1. Інтерактивна слайд-презентація")
+                    pres_html = render_presentation_html(slides, ext_pres, theme_key)
+                    if pres_html:
+                        st.components.v1.html(pres_html, height=420)
+                
+                # 2. ТЕОРІЯ
+                st.subheader("📖 2. Теоретичний конспект")
+                st.markdown(current_lesson["summary"])
+                
+                # 3. ВІДЕО / ПОСИЛАННЯ
+                if current_lesson.get("video_url"):
+                    st.subheader("🎬 3. Навчальне відео / Матеріали")
+                    render_smart_video(current_lesson["video_url"])
+                
+                # 4. ФЛЕШКАРТКИ
+                flashcards = current_lesson.get("flashcards", [])
+                if flashcards:
+                    st.subheader("🎴 4. Інтерактивні флешкартки")
+                    flashcards_html = render_flashcards_html(flashcards, theme_key)
+                    st.components.v1.html(flashcards_html, height=340)
+                
+                # 5. ТЕСТ
+                st.subheader("📝 5. Тест для перевірки знань")
+                
+                quiz = current_lesson.get("quiz", [])
+                user_answers = {}
+                
+                if not quiz:
+                    st.info("Для цього уроку немає тестів.")
+                else:
+                    with st.form(key=f"quiz_form_{current_lesson['id']}"):
                         for idx, q in enumerate(quiz):
-                            selected_option = user_answers[idx]
-                            correct_option = q['options'][q['correct_idx']]
-                            if selected_option == correct_option:
-                                correct_count += 1
+                            st.markdown(f"#### ❓ Питання {idx+1}: {q['question']}")
+                            
+                            if current_lesson.get("test_mode") == "Тренувальний" and q.get("hint"):
+                                with st.expander("💡 Отримати логічну підказку / натяк"):
+                                    st.info(q["hint"])
+                            
+                            user_answers[idx] = st.radio(
+                                f"Оберіть один із варіантів відповідей:", 
+                                q['options'], 
+                                key=f"q_{current_lesson['id']}_{idx}",
+                                index=None
+                            )
+                            st.markdown("---")
                         
-                        total_q = len(quiz)
-                        score_pct = int((correct_count / total_q) * 100) if total_q > 0 else 100
-                        completed_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        result_record = {
-                            "lesson_id": current_lesson["id"],
-                            "date": current_lesson["date"],
-                            "subject": current_lesson["subject"],
-                            "topic": current_lesson["topic"],
-                            "test_mode": current_lesson.get("test_mode", "Контрольний"),
-                            "score_percent": score_pct,
-                            "score_text": f"{correct_count}/{total_q}",
-                            "completed_at": completed_time
-                        }
-                        
-                        db["results"] = [r for r in db["results"] if r.get("lesson_id") != current_lesson["id"]]
-                        db["results"].append(result_record)
-                        save_data(db)
-                        
-                        # ВІДПРАВКА В ТЕЛЕГРАМ
-                        tg_ok, tg_err = send_telegram_notification(
-                            current_lesson["subject"], 
-                            current_lesson["topic"], 
-                            current_lesson.get("test_mode", "Контрольний"), 
-                            score_pct, 
-                            f"{correct_count}/{total_q}", 
-                            completed_time
-                        )
-                        
-                        st.balloons()
-                        if tg_ok:
-                            st.success(f"🎉 Урок здано! Твій результат: {correct_count} з {total_q} ({score_pct}%). Сповіщення надіслано в Telegram RudaFox! 📲")
+                        submit_button = st.form_submit_button("🚀 Завершити та здати урок", type="primary")
+                    
+                    if submit_button:
+                        if None in user_answers.values():
+                            st.warning("⚠️ Будь ласка, дай відповідь на всі питання тесту перед здачею!")
                         else:
-                            st.warning(f"🎉 Урок здано! Твій результат: {correct_count} з {total_q} ({score_pct}%).\n\n⚠️ Повідомлення в Telegram не відправилось: {tg_err}")
+                            correct_count = 0
+                            for idx, q in enumerate(quiz):
+                                selected_option = user_answers[idx]
+                                correct_option = q['options'][q['correct_idx']]
+                                if selected_option == correct_option:
+                                    correct_count += 1
+                            
+                            total_q = len(quiz)
+                            score_pct = int((correct_count / total_q) * 100) if total_q > 0 else 100
+                            completed_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            
+                            result_record = {
+                                "lesson_id": current_lesson["id"],
+                                "date": current_lesson["date"],
+                                "subject": current_lesson["subject"],
+                                "topic": current_lesson["topic"],
+                                "test_mode": current_lesson.get("test_mode", "Контрольний"),
+                                "score_percent": score_pct,
+                                "score_text": f"{correct_count}/{total_q}",
+                                "completed_at": completed_time
+                            }
+                            
+                            db["results"] = [r for r in db["results"] if r.get("lesson_id") != current_lesson["id"]]
+                            db["results"].append(result_record)
+                            save_data(db)
+                            
+                            # Розрахунок оновленого денного прогресу для Telegram
+                            new_done_count = sum(1 for l_item in day_lessons if any(r_item["lesson_id"] == l_item["id"] for r_item in db["results"]))
+                            day_progress_str = f"{new_done_count} з {total_day_count} уроків закрито ({int((new_done_count/total_day_count)*100)}%)"
+                            
+                            # ВІДПРАВКА В ТЕЛЕГРАМ
+                            tg_ok, tg_err = send_telegram_notification(
+                                current_lesson["subject"], 
+                                current_lesson["topic"], 
+                                current_lesson.get("test_mode", "Контрольний"), 
+                                score_pct, 
+                                f"{correct_count}/{total_q}", 
+                                completed_time,
+                                day_progress_str
+                            )
+                            
+                            st.balloons()
+                            if tg_ok:
+                                st.success(f"🎉 Урок здано! Твій результат: {correct_count} з {total_q} ({score_pct}%). Сповіщення надіслано в Telegram RudaFox! 📲")
+                            else:
+                                st.warning(f"🎉 Урок здано! Твій результат: {correct_count} з {total_q} ({score_pct}%).\n\n⚠️ Повідомлення в Telegram не відправилось: {tg_err}")
+
+        # -------------------------------------------------
+        # ВКЛАДКА 2: СУПЕР-ПРОГРЕС (ТИЖДЕНЬ/МІСЯЦЬ/ПРЕДМЕТИ)
+        # -------------------------------------------------
+        with tab_student_progress:
+            st.subheader("📈 Загальний аналіз прогресу та ачівок")
+            
+            if not db["results"]:
+                st.info("Поки немає даних для прогресу. Виконай перші уроки, щоб відкрити графіки успішності!")
+            else:
+                df_res = pd.DataFrame(db["results"])
+                
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    st.metric("Виконано уроків всього:", len(df_res))
+                with col_m2:
+                    avg_score = int(df_res["score_percent"].mean())
+                    st.metric("Середній бал за тести:", f"{avg_score}%")
+                with col_m3:
+                    top_subject = df_res["subject"].mode()[0] if not df_res.empty else "—"
+                    st.metric("Найактивніший предмет:", top_subject)
+                
+                st.markdown("---")
+                st.subheader("📚 Прогрес за окремими предметами:")
+                
+                subject_stats = df_res.groupby("subject").agg(
+                    total_done=("lesson_id", "count"),
+                    avg_pct=("score_percent", "mean")
+                ).reset_index()
+                
+                for _, row in subject_stats.iterrows():
+                    subj_name = row["subject"]
+                    avg_p = int(row["avg_pct"])
+                    count_d = row["total_done"]
+                    
+                    col_s1, col_s2 = st.columns([1, 3])
+                    with col_s1:
+                        st.write(f"**{subj_name}** ({count_d} уроків)")
+                    with col_s2:
+                        st.progress(avg_p / 100.0, text=f"Середня успішність: {avg_p}%")
+                
+                st.markdown("---")
+                st.subheader("📜 Історія закритих тем:")
+                st.dataframe(
+                    df_res[['date', 'subject', 'topic', 'test_mode', 'score_percent', 'score_text', 'completed_at']],
+                    column_config={
+                        "date": "Дата",
+                        "subject": "Предмет",
+                        "topic": "Тема",
+                        "test_mode": "Режим",
+                        "score_percent": st.column_config.ProgressColumn("Результат (%)", format="%d%%", min_value=0, max_value=100),
+                        "score_text": "Бали",
+                        "completed_at": "Час здачі"
+                    },
+                    use_container_width=True
+                )
