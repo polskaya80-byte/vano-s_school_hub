@@ -282,12 +282,156 @@ def generate_lesson_with_fallback(prompt, api_key):
     raise last_error
 
 # ---------------------------------------------------------
-# 7. ВІДЖЕТИ ВІДЕО ТА ПРЕЗЕНТАЦІЙ
+# 7. ШІ-ВІДЕОПЛЕЄР З ГОЛОСОВИМ ДИКТОРОМ (WEB SPEECH API)
 # ---------------------------------------------------------
+def render_ai_video_explainer_html(video_data, theme_key):
+    if not video_data or not video_data.get("scenes"):
+        return
+    
+    theme = THEMES.get(theme_key, THEMES["🌿 Затишний Скетчбук (Коричневий-Зелений)"])
+    video_json = json.dumps(video_data, ensure_ascii=False)
+    
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+    <meta charset="utf-8">
+    <link href="https://fonts.googleapis.com/css2?family=Comfortaa:wght@500;700&family=Neucha&display=swap" rel="stylesheet">
+    <style>
+      body {{ font-family: 'Comfortaa', cursive, sans-serif; background: transparent; margin: 0; padding: 10px; display: flex; flex-direction: column; align-items: center; }}
+      .video-box {{ width: 100%; max-width: 820px; background: {theme['slide_bg']}; color: {theme['slide_text']}; border-radius: 20px; border: 3px dashed {theme['slide_accent']}; padding: 25px; box-sizing: border-box; box-shadow: 6px 6px 0px rgba(0,0,0,0.1); position: relative; }}
+      .video-header {{ font-family: 'Neucha', cursive; font-size: 26px; font-weight: 700; color: {theme['slide_accent']}; border-bottom: 2px dashed {theme['slide_accent']}; padding-bottom: 8px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }}
+      .scene-screen {{ background: rgba(74, 124, 89, 0.08); border: 2px solid {theme['slide_accent']}; border-radius: 16px; padding: 20px; min-height: 180px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; margin-bottom: 15px; position: relative; }}
+      .scene-time {{ position: absolute; top: 10px; left: 15px; font-family: 'Neucha', cursive; font-size: 14px; background: {theme['slide_accent']}; color: white; padding: 3px 10px; border-radius: 10px; }}
+      .scene-visual {{ font-size: 18px; font-weight: bold; margin-bottom: 10px; color: {theme['slide_accent']}; }}
+      .subtitles-box {{ background: #2e4a32; color: #ffffff; padding: 12px 18px; border-radius: 12px; font-size: 15px; line-height: 1.5; min-height: 50px; display: flex; align-items: center; justify-content: center; text-align: center; border: 1px solid #1a2419; margin-bottom: 15px; }}
+      .controls-bar {{ display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }}
+      .btn {{ background-color: {theme['slide_accent']}; color: white; border: 2px solid #2e4a32; padding: 9px 20px; border-radius: 20px; cursor: pointer; font-family: 'Comfortaa', cursive; font-weight: 700; font-size: 14px; box-shadow: 2px 2px 0px #2e4a32; transition: all 0.2s; }}
+      .btn:hover {{ transform: translate(-1px, -1px); box-shadow: 4px 4px 0px #2e4a32; }}
+      .speed-select {{ background: #f4ece1; border: 2px solid #8d6e63; border-radius: 12px; padding: 6px 12px; font-family: 'Comfortaa', cursive; font-weight: bold; }}
+    </style>
+    </head>
+    <body>
+
+    <div class="video-box">
+      <div class="video-header">
+        <span>🎥 ШІ-Відеопояснення з Диктором</span>
+        <select class="speed-select" id="speed-select" onchange="changeSpeed()">
+          <option value="1">Швидкість 1.0x</option>
+          <option value="1.25">Швидкість 1.25x</option>
+          <option value="1.5">Швидкість 1.5x</option>
+        </select>
+      </div>
+
+      <div class="scene-screen">
+        <div class="scene-time" id="v-time">00:00 - 00:15</div>
+        <div class="scene-visual" id="v-visual">🎨 Візуальний кадр...</div>
+      </div>
+
+      <div class="subtitles-box" id="v-subtitles">💬 Натисніть «Запустити відеопояснення», щоб послухати диктора...</div>
+
+      <div class="controls-bar">
+        <button class="btn" onclick="prevScene()">⬅️ Кадр назад</button>
+        <button class="btn" style="background:#2e4a32;" id="play-btn" onclick="togglePlay()">▶️ Запустити відеопояснення</button>
+        <button class="btn" onclick="nextScene()">Кадр далі ➡️</button>
+      </div>
+    </div>
+
+    <script>
+      const videoData = {video_json};
+      const scenes = videoData.scenes || [];
+      let currentIdx = 0;
+      let isPlaying = false;
+      let synth = window.speechSynthesis;
+      let currentUtterance = null;
+      let speechSpeed = 1.0;
+
+      function updateScene() {{
+        if (scenes.length === 0) return;
+        const sc = scenes[currentIdx];
+        document.getElementById('v-time').innerText = "⏱️ Кадр " + (currentIdx + 1) + " / " + scenes.length + " (" + (sc.timecode || "") + ")";
+        document.getElementById('v-visual').innerHTML = sc.visual || "";
+        document.getElementById('v-subtitles').innerText = "🗣️ " + (sc.narration || "");
+      }}
+
+      function speakCurrentScene() {{
+        if (!('speechSynthesis' in window)) {{
+          alert("Ваш браузер не підтримує голосовий синтез. Спробуйте Chrome або Safari.");
+          return;
+        }}
+        synth.cancel();
+
+        const sc = scenes[currentIdx];
+        currentUtterance = new SpeechSynthesisUtterance(sc.narration);
+        currentUtterance.lang = 'uk-UA';
+        currentUtterance.rate = speechSpeed;
+
+        currentUtterance.onend = function() {{
+          if (isPlaying && currentIdx < scenes.length - 1) {{
+            currentIdx++;
+            updateScene();
+            speakCurrentScene();
+          }} else if (currentIdx === scenes.length - 1) {{
+            isPlaying = false;
+            document.getElementById('play-btn').innerText = "▶️ Повторити спочатку";
+          }}
+        }};
+
+        synth.speak(currentUtterance);
+      }}
+
+      function togglePlay() {{
+        if (isPlaying) {{
+          synth.cancel();
+          isPlaying = false;
+          document.getElementById('play-btn').innerText = "▶️ Продовжити";
+        }} else {{
+          if (currentIdx >= scenes.length - 1) {{
+            currentIdx = 0;
+          }}
+          isPlaying = true;
+          document.getElementById('play-btn').innerText = "⏸️ Пауза";
+          updateScene();
+          speakCurrentScene();
+        }}
+      }}
+
+      function nextScene() {{
+        synth.cancel();
+        if (currentIdx < scenes.length - 1) {{
+          currentIdx++;
+          updateScene();
+          if (isPlaying) speakCurrentScene();
+        }}
+      }}
+
+      function prevScene() {{
+        synth.cancel();
+        if (currentIdx > 0) {{
+          currentIdx--;
+          updateScene();
+          if (isPlaying) speakCurrentScene();
+        }}
+      }}
+
+      function changeSpeed() {{
+        speechSpeed = parseFloat(document.getElementById('speed-select').value);
+        if (isPlaying) {{
+          speakCurrentScene();
+        }}
+      }}
+
+      // Init
+      updateScene();
+    </script>
+    </body>
+    </html>
+    """
+    return html_code
+
 def render_smart_video(url):
     if not url or not url.strip():
         return
-    
     clean_url = url.strip()
     yt_match = re.search(r'(?:youtu\.be/|youtube\.com/(?:embed/|v/|watch\?v=|shorts/))([\w-]{11})', clean_url)
     if yt_match:
@@ -469,526 +613,4 @@ def render_flashcards_html(flashcards, theme_key):
     return html_code
 
 # ---------------------------------------------------------
-# 8. БОКОВЕ МЕНЮ (НАВІГАЦІЯ)
-# ---------------------------------------------------------
-st.sidebar.title("🦊 RudaFox Hub")
-role = st.sidebar.radio(
-    "Оберіть простори:", 
-    ["🎓 Місце страждань та досягнень Іванка", "🦊 Місце сили RudaFox"]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.info("Затишний сімейний навчальний простір v3.5 (Gamified Dashboard)")
-
-# =========================================================
-# РЕЖИМ: МІСЦЕ СИЛИ RUDAFOX
-# =========================================================
-if role == "🦊 Місце сили RudaFox":
-    st.header("🦊 Місце сили RudaFox: Панель Управління")
-    
-    tab_gen, tab_dash, tab_settings = st.tabs(["🤖 AI-Конструктор Уроків", "📊 Дашборд Досягнень", "⚙️ Налаштування Ключів"])
-    
-    # -----------------------------------------------------
-    # ВКЛАДКА 1: ГЕНЕРАТОР УРОКІВ
-    # -----------------------------------------------------
-    with tab_gen:
-        st.subheader("🛠️ Конструктор нового уроку")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            subject = st.selectbox("Предмет:", [
-                "Алгебра", "Геометрія", "Фізика", "Хімія", "Біологія", 
-                "Історія України", "Всесвітня історія", "Українська мова", 
-                "Українська література", "Англійська мова", "Географія", "Інформатика"
-            ])
-            lesson_date = st.date_input("Дата проведения:", datetime.today())
-        
-        with col2:
-            topic = st.text_input("Тема уроку (з календарного плану):", placeholder="наприклад: Чинники розміщення виробництва")
-            video_url = st.text_input("Посилання на відео (YouTube, Pistacja.tv, сайти):", placeholder="https://...")
-
-        st.markdown("---")
-        st.subheader("💻 Презентація (NotebookLM / Google Slides / AI)")
-        
-        col_pres1, col_pres2 = st.columns(2)
-        with col_pres1:
-            make_presentation = st.checkbox("🤖 Згенерувати AI-презентацію рівня NotebookLM", value=True)
-            selected_theme = st.selectbox("Базовий колірний пресет:", list(THEMES.keys()))
-        with col_pres2:
-            external_pres_url = st.text_input("Або вкажіть посилання на власну презентацію (NotebookLM / Slides):", placeholder="https://...")
-            custom_design_prompt = st.text_input("Побажання до дизайну/атмосфери:", placeholder="наприклад: Скетчбук, S.T.A.L.K.E.R., Minecraft, Ghibli...")
-
-        st.markdown("---")
-        st.subheader("💡 Нюанси подачі (Гумор, Лайфхаки, Аналогії)")
-        
-        content_nuances = st.multiselect(
-            "Оберіть фішки для подачі матеріалу:",
-            options=[
-                "😂 Гумор, жарти та легка іронія",
-                "🧠 Мнемонічні лайфхаки для швидкого запам'ятовування",
-                "🎮 Аналогії з ігор та серіалів (S.T.A.L.K.E.R., Minecraft, Рік і Морті тощо)",
-                "⚡ Короткі 'шпори'-лайфхаки для іспиту",
-                "📜 Сюжетна подача (ігровий квест / пригода)"
-            ],
-            default=["🧠 Мнемонічні лайфхаки для швидкого запам'ятовування"]
-        )
-        
-        custom_nuances_text = st.text_area(
-            "Власні побажання щодо тематики, аналогій чи гумору:", 
-            placeholder="наприклад: Поясни Закон Ома через аналогію з проходженням КПП у Зоні S.T.A.L.K.E.R..."
-        )
-
-        st.markdown("---")
-        st.subheader("📚 Власні джерела та файли уроку")
-        
-        uploaded_pdf = st.file_uploader("📂 Завантажити PDF-файл підручника або конспекту:", type=["pdf", "txt"])
-        
-        source_materials = st.text_area(
-            "Скопійований текст або виписка з NotebookLM:", 
-            placeholder="Вставте сюди додатковий текст з NotebookLM чи конспекту...",
-            height=110
-        )
-
-        st.markdown("---")
-        st.subheader("⚙️ Налаштування тесту та флешкарток")
-        
-        col_opt1, col_opt2 = st.columns(2)
-        
-        with col_opt1:
-            test_mode = st.radio(
-                "Категорія тесту:", 
-                ["🏋️ Тренувальний (з логічними підказками)", "🎯 Контрольний (сухий контроль знань)"]
-            )
-            num_questions = st.slider("Кількість питань у тесті:", min_value=3, max_value=24, value=5, step=1)
-            generate_flashcards = st.checkbox("🎴 Згенерувати 3D-флешкартки для термінів", value=True)
-            
-        with col_opt2:
-            difficulty = st.selectbox("Рівень складності:", ["Базовий", "Середній", "Поглиблений / Олімпіадний"])
-            quiz_focus = st.multiselect(
-                "Фокус тесту (можна обрати декілька):", 
-                options=[
-                    "Загальна теорія та терміни", 
-                    "Формули та практичні задачі", 
-                    "Дати, події та ключові факти", 
-                    "Критичне мислення та аналіз"
-                ],
-                default=["Загальна теорія та терміни"]
-            )
-
-        custom_instructions = st.text_area("Додаткові інструкції (опціонально):", placeholder="наприклад: Зроби акцент на деталях...")
-        
-        if st.button("🚀 Згенерувати повноцінний урок", type="primary"):
-            api_key = st.secrets.get("GEMINI_API_KEY", None) or st.session_state.get("user_gemini_key", "")
-            
-            if not api_key:
-                st.error("❌ Не налаштовано Gemini API Key! Додайте ключ у вкладці 'Налаштування Ключів' або в Secrets.")
-            elif not topic:
-                st.warning("⚠️ Будь ласка, вкажіть тему уроку.")
-            else:
-                with st.spinner("🤖 Обробка матеріалів та генерація уроку рівня NotebookLM..."):
-                    
-                    pdf_text = ""
-                    if uploaded_pdf:
-                        if uploaded_pdf.name.endswith(".pdf"):
-                            pdf_text = extract_text_from_pdf(uploaded_pdf)
-                        else:
-                            pdf_text = uploaded_pdf.read().decode("utf-8", errors="ignore")
-                    
-                    combined_source = (source_materials.strip() + "\n" + pdf_text).strip()
-                    source_context = f"\nБАЗОВІ МАТЕРІАЛИ ТА ТЕКСТ З ПІДРУЧНИКА/PDF/NOTEBOOKLM:\n{combined_source}\n" if combined_source else ""
-                    
-                    is_practice = "Тренувальний" in test_mode
-                    focus_str = ", ".join(quiz_focus) if quiz_focus else "Загальна теорія та терміни"
-                    nuances_str = ", ".join(content_nuances) if content_nuances else "Стандартна подача"
-                    
-                    prompt = f"""
-                    Ти — професійний учитель, методист та сценарист інтерактивного навчання рівня NotebookLM для 9 класу української школи.
-                    Створи повноцінний інтерактивний урок за наступними параметрами:
-                    - Предмет: {subject}
-                    - Тема: {topic}
-                    - Категорія тесту: {"ТРЕНУВАЛЬНИЙ (із логічними підказками)" if is_practice else "КОНТРОЛЬНИЙ (без підказок)"}
-                    - Складність тесту: {difficulty}
-                    - Кількість питань у тесті: {num_questions}
-                    - Напрямки/Фокус тесту: {focus_str}
-                    - Згенерувати слайди презентації: {"Так (5-7 детальних слайдів рівня NotebookLM)" if make_presentation else "Ні"}
-                    - Згенерувати флешкартки: {"Так (5-8 карток)" if generate_flashcards else "Ні"}
-                    
-                    АТМОСФЕРА, ДИЗАЙН ТА СТИЛЬ ПОДАЧІ:
-                    - Кастомний стиль дизайну: {custom_design_prompt if custom_design_prompt else "Затишний крафтовий скетчбук"}
-                    - Обрані фішки вмісту: {nuances_str}
-                    - Сюжетні аналогії, гумор, мнемонічні лайфхаки від вчителя: {custom_nuances_text if custom_nuances_text else "Немає"}
-                    - Додаткові інструкції: {custom_instructions}
-                    {source_context}
-
-                    ВИМОГИ ДО ПРЕЗЕНТАЦІЇ (NotebookLM Quality):
-                    Кожен слайд повинен містити:
-                    1. 'title' - чіткий заголовок слайду.
-                    2. 'takeaway' - короткий головний висновок (1 речення).
-                    3. 'content' - детальні тези з HTML-форматуванням (використовуй <ul>, <li>, <b> для ключових термінів).
-
-                    Поверни ВІДПОВІДЬ СТРОГО У ФОРМАТІ JSON без додаткового тексту чи markdown-обгортки ```json.
-                    
-                    Структура JSON:
-                    {{
-                        "summary": "Зрозумілий конспект уроку з гумором, мнемонічними лайфхаками та візуальними акцентами у форматуванні Markdown (до 350 слів).",
-                        "slides": [
-                            {{
-                                "title": "Слайд 1: Ключове поняття", 
-                                "takeaway": "Головний висновок слайду для швидкого розуміння.",
-                                "content": "<ul><li><b>Термін:</b> Детальне пояснення...</li><li><b>Приклад:</b> Аналогія...</li></ul>"
-                            }}
-                        ],
-                        "flashcards": [
-                            {{"front": "Термін / Лайфхак 1", "back": "Пояснення 1"}}
-                        ],
-                        "quiz": [
-                            {{
-                                "question": "Текст питання 1?",
-                                "options": ["Варіант A", "Варіант B", "Варіант C", "Варіант D"],
-                                "correct_idx": 0,
-                                "explanation": "Пояснення.",
-                                "hint": "Логічна підказка"
-                            }}
-                        ]
-                    }}
-                    """
-                    try:
-                        raw_text = generate_lesson_with_fallback(prompt, api_key)
-                        clean_text = raw_text.strip()
-                        if clean_text.startswith("```json"):
-                            clean_text = clean_text[7:]
-                        if clean_text.endswith("```"):
-                            clean_text = clean_text[:-3]
-                        
-                        lesson_content = json.loads(clean_text)
-                        
-                        new_lesson = {
-                            "id": f"{subject}_{lesson_date.strftime('%Y%m%d')}_{len(db['lessons'])}",
-                            "subject": subject,
-                            "date": str(lesson_date),
-                            "topic": topic,
-                            "video_url": video_url,
-                            "external_pres_url": external_pres_url,
-                            "theme": selected_theme,
-                            "test_mode": "Тренувальний" if is_practice else "Контрольний",
-                            "summary": lesson_content.get("summary", ""),
-                            "slides": lesson_content.get("slides", []) if make_presentation else [],
-                            "flashcards": lesson_content.get("flashcards", []) if generate_flashcards else [],
-                            "quiz": lesson_content.get("quiz", [])
-                        }
-                        
-                        db["lessons"].append(new_lesson)
-                        save_data(db)
-                        
-                        st.success(f"✅ Урок з теми '{topic}' успішно створено та додано до розкладу Іванка!")
-                        st.json(new_lesson)
-                    except Exception as e:
-                        st.error(f"Помилка при генерації уроку: {e}")
-
-    # -----------------------------------------------------
-    # ВКЛАДКА 2: ДАШБОРД УСПІШНОСТІ
-    # -----------------------------------------------------
-    with tab_dash:
-        st.subheader("📊 Зведена таблиця результатів Іванка")
-        
-        if not db["results"]:
-            st.info("Поки немає зданих уроків. Результати з'являться тут одразу після виконання завдань Іванком.")
-        else:
-            df_results = pd.DataFrame(db["results"])
-            st.dataframe(
-                df_results[['date', 'subject', 'topic', 'test_mode', 'score_percent', 'score_text', 'completed_at']],
-                column_config={
-                    "date": "Дата уроку",
-                    "subject": "Предмет",
-                    "topic": "Тема",
-                    "test_mode": "Тип тесту",
-                    "score_percent": st.column_config.ProgressColumn("Результат (%)", format="%d%%", min_value=0, max_value=100),
-                    "score_text": "Правильних відповідей",
-                    "completed_at": "Час здачі"
-                },
-                use_container_width=True
-            )
-
-    # -----------------------------------------------------
-    # ВКЛАДКА 3: НАЛАШТУВАННЯ КЛЮЧІВ ТА ТЕЛЕГРАМ
-    # -----------------------------------------------------
-    with tab_settings:
-        st.subheader("⚙️ Ключі доступу")
-        key_input = st.text_input("Введіть ваш Gemini API Key:", value=st.session_state.get("user_gemini_key", ""), type="password")
-        if st.button("Зберегти Gemini Key"):
-            st.session_state["user_gemini_key"] = key_input
-            st.success("Gemini Key збережено в сесії!")
-        
-        st.markdown("---")
-        st.subheader("📲 Налаштування Telegram-сповіщень")
-        tg_token = st.text_input("Bot Token (з @BotFather):", value=st.session_state.get("user_tg_token", ""), type="password")
-        tg_chat_id = st.text_input("Your Chat ID (з @userinfobot):", value=st.session_state.get("user_tg_chat_id", ""))
-        
-        if st.button("Зберегти ключі Telegram"):
-            st.session_state["user_tg_token"] = tg_token
-            st.session_state["user_tg_chat_id"] = tg_chat_id
-            st.success("Налаштування Telegram збережено!")
-
-# =========================================================
-# РЕЖИМ: МІСЦЕ СТРАЖДАНЬ ТА ДОСЯГНЕНЬ ІВАНКА
-# =========================================================
-else:
-    st.header("🎓 Місце страждань та досягнень Іванка")
-    
-    if not db["lessons"]:
-        st.warning("Наразі немає створених уроків. Зазирни пізніше або попроси RudaFox додати уроки!")
-    else:
-        tab_student_daily, tab_student_progress = st.tabs(["🎯 Квести Дня & Уроки", "📊 Мій Супер-Прогрес"])
-        
-        # -------------------------------------------------
-        # ВКЛАДКА 1: КВЕСТИ ДНЯ ТА ДАШБОРД
-        # -------------------------------------------------
-        with tab_student_daily:
-            available_dates = sorted(list(set([l["date"] for l in db["lessons"]])), reverse=True)
-            selected_date = st.selectbox("📅 Оберіть дату навчання:", available_dates)
-            
-            day_lessons = [l for l in db["lessons"] if l["date"] == selected_date]
-            total_day_count = len(day_lessons)
-            
-            # Обчислення виконання на обрану дату
-            completed_ids = [r["lesson_id"] for r in db["results"]]
-            done_day_count = sum(1 for l in day_lessons if l["id"] in completed_ids)
-            pct_done = int((done_day_count / total_day_count) * 100) if total_day_count > 0 else 0
-            
-            # Цитати та лайфхаки
-            quote, hack = get_daily_quote_and_hack(selected_date)
-            
-            # Гуморний статус
-            if pct_done == 0:
-                status_msg = "🧟 **Статус Зони:** Борги висять, як ментальний дебаф! Час розміновувати першу таску."
-                status_color = "warning"
-            elif pct_done < 50:
-                status_msg = "🐢 **Перший квест закрито!** Але борги все ще дивляться на тебе з докором."
-                status_color = "info"
-            elif pct_done < 100:
-                status_msg = "🏃💨 **Екватор подолано!** Ще трохи — і чистий сейв та воля!"
-                status_color = "info"
-            else:
-                status_msg = "🎉 **АБСОЛЮТНИЙ СЕЙВ!** Всі таски закриті, кукуха в безпеці, RudaFox пишається!"
-                status_color = "success"
-                
-            st.markdown(f"""
-            <div class="doodle-card">
-                <h3 style="margin-top:0;">📜 Мудрість Дня & Підтримка Кукухи</h3>
-                <p style="font-size:16px; font-style:italic; color:#2e4a32;">{quote}</p>
-                <hr style="border:0; border-top:1px dashed #8d6e63; margin:10px 0;">
-                <p style="font-size:14px; margin-bottom:0;">{hack}</p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            st.subheader(f"📊 Прогрес за {selected_date}: {done_day_count} з {total_day_count} уроків ({pct_done}%)")
-            st.progress(pct_done / 100.0)
-            
-            if status_color == "success":
-                st.success(status_msg)
-            elif status_color == "warning":
-                st.warning(status_msg)
-            else:
-                st.info(status_msg)
-            
-            st.markdown("---")
-            st.subheader("📋 Чеклист запланованого на цей день:")
-            
-            checklist_data = []
-            for l in day_lessons:
-                res = next((r for r in db["results"] if r.get("lesson_id") == l["id"]), None)
-                if res:
-                    st_text = f"✅ Виконано ({res['score_percent']}%)"
-                    score_val = res['score_text']
-                else:
-                    st_text = "⏳ Висить у боргах"
-                    score_val = "—"
-                
-                checklist_data.append({
-                    "Предмет": l["subject"],
-                    "Тема": l["topic"],
-                    "Режим": l.get("test_mode", "Контрольний"),
-                    "Статус": st_text,
-                    "Результат": score_val
-                })
-            
-            st.dataframe(pd.DataFrame(checklist_data), use_container_width=True)
-            
-            st.markdown("---")
-            st.subheader("📚 Вибір уроку для проходження:")
-            
-            lesson_subjects = [l["subject"] for l in day_lessons]
-            selected_subject = st.radio("Оберіть предмет:", lesson_subjects, horizontal=True)
-            current_lesson = next((l for l in day_lessons if l["subject"] == selected_subject), None)
-            
-            if current_lesson:
-                theme_key = current_lesson.get("theme", "🌿 Затишний Скетчбук (Коричневий-Зелений)")
-                mode_badge = "🏋️ Тренувальний урок (із підказками)" if current_lesson.get("test_mode") == "Тренувальний" else "🎯 Контрольний урок"
-                
-                st.markdown(f"### {current_lesson['subject']}: {current_lesson['topic']}")
-                st.caption(f"Стиль матеріалів: **{theme_key}** | Режим: **{mode_badge}**")
-                
-                already_done = next((r for r in db["results"] if r.get("lesson_id") == current_lesson["id"]), None)
-                if already_done:
-                    st.success(f"✅ Цей урок вже виконано! Твій результат: {already_done['score_percent']}% ({already_done['score_text']})")
-                
-                st.markdown("---")
-                
-                # 1. ПРЕЗЕНТАЦІЯ
-                slides = current_lesson.get("slides", [])
-                ext_pres = current_lesson.get("external_pres_url", "")
-                if slides or ext_pres:
-                    st.subheader("💻 1. Інтерактивна слайд-презентація")
-                    pres_html = render_presentation_html(slides, ext_pres, theme_key)
-                    if pres_html:
-                        st.components.v1.html(pres_html, height=420)
-                
-                # 2. ТЕОРІЯ
-                st.subheader("📖 2. Теоретичний конспект")
-                st.markdown(current_lesson["summary"])
-                
-                # 3. ВІДЕО / ПОСИЛАННЯ
-                if current_lesson.get("video_url"):
-                    st.subheader("🎬 3. Навчальне відео / Матеріали")
-                    render_smart_video(current_lesson["video_url"])
-                
-                # 4. ФЛЕШКАРТКИ
-                flashcards = current_lesson.get("flashcards", [])
-                if flashcards:
-                    st.subheader("🎴 4. Інтерактивні флешкартки")
-                    flashcards_html = render_flashcards_html(flashcards, theme_key)
-                    st.components.v1.html(flashcards_html, height=340)
-                
-                # 5. ТЕСТ
-                st.subheader("📝 5. Тест для перевірки знань")
-                
-                quiz = current_lesson.get("quiz", [])
-                user_answers = {}
-                
-                if not quiz:
-                    st.info("Для цього уроку немає тестів.")
-                else:
-                    with st.form(key=f"quiz_form_{current_lesson['id']}"):
-                        for idx, q in enumerate(quiz):
-                            st.markdown(f"#### ❓ Питання {idx+1}: {q['question']}")
-                            
-                            if current_lesson.get("test_mode") == "Тренувальний" and q.get("hint"):
-                                with st.expander("💡 Отримати логічну підказку / натяк"):
-                                    st.info(q["hint"])
-                            
-                            user_answers[idx] = st.radio(
-                                f"Оберіть один із варіантів відповідей:", 
-                                q['options'], 
-                                key=f"q_{current_lesson['id']}_{idx}",
-                                index=None
-                            )
-                            st.markdown("---")
-                        
-                        submit_button = st.form_submit_button("🚀 Завершити та здати урок", type="primary")
-                    
-                    if submit_button:
-                        if None in user_answers.values():
-                            st.warning("⚠️ Будь ласка, дай відповідь на всі питання тесту перед здачею!")
-                        else:
-                            correct_count = 0
-                            for idx, q in enumerate(quiz):
-                                selected_option = user_answers[idx]
-                                correct_option = q['options'][q['correct_idx']]
-                                if selected_option == correct_option:
-                                    correct_count += 1
-                            
-                            total_q = len(quiz)
-                            score_pct = int((correct_count / total_q) * 100) if total_q > 0 else 100
-                            completed_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                            
-                            result_record = {
-                                "lesson_id": current_lesson["id"],
-                                "date": current_lesson["date"],
-                                "subject": current_lesson["subject"],
-                                "topic": current_lesson["topic"],
-                                "test_mode": current_lesson.get("test_mode", "Контрольний"),
-                                "score_percent": score_pct,
-                                "score_text": f"{correct_count}/{total_q}",
-                                "completed_at": completed_time
-                            }
-                            
-                            db["results"] = [r for r in db["results"] if r.get("lesson_id") != current_lesson["id"]]
-                            db["results"].append(result_record)
-                            save_data(db)
-                            
-                            # Розрахунок оновленого денного прогресу для Telegram
-                            new_done_count = sum(1 for l_item in day_lessons if any(r_item["lesson_id"] == l_item["id"] for r_item in db["results"]))
-                            day_progress_str = f"{new_done_count} з {total_day_count} уроків закрито ({int((new_done_count/total_day_count)*100)}%)"
-                            
-                            # ВІДПРАВКА В ТЕЛЕГРАМ
-                            tg_ok, tg_err = send_telegram_notification(
-                                current_lesson["subject"], 
-                                current_lesson["topic"], 
-                                current_lesson.get("test_mode", "Контрольний"), 
-                                score_pct, 
-                                f"{correct_count}/{total_q}", 
-                                completed_time,
-                                day_progress_str
-                            )
-                            
-                            st.balloons()
-                            if tg_ok:
-                                st.success(f"🎉 Урок здано! Твій результат: {correct_count} з {total_q} ({score_pct}%). Сповіщення надіслано в Telegram RudaFox! 📲")
-                            else:
-                                st.warning(f"🎉 Урок здано! Твій результат: {correct_count} з {total_q} ({score_pct}%).\n\n⚠️ Повідомлення в Telegram не відправилось: {tg_err}")
-
-        # -------------------------------------------------
-        # ВКЛАДКА 2: СУПЕР-ПРОГРЕС (ТИЖДЕНЬ/МІСЯЦЬ/ПРЕДМЕТИ)
-        # -------------------------------------------------
-        with tab_student_progress:
-            st.subheader("📈 Загальний аналіз прогресу та ачівок")
-            
-            if not db["results"]:
-                st.info("Поки немає даних для прогресу. Виконай перші уроки, щоб відкрити графіки успішності!")
-            else:
-                df_res = pd.DataFrame(db["results"])
-                
-                col_m1, col_m2, col_m3 = st.columns(3)
-                with col_m1:
-                    st.metric("Виконано уроків всього:", len(df_res))
-                with col_m2:
-                    avg_score = int(df_res["score_percent"].mean())
-                    st.metric("Середній бал за тести:", f"{avg_score}%")
-                with col_m3:
-                    top_subject = df_res["subject"].mode()[0] if not df_res.empty else "—"
-                    st.metric("Найактивніший предмет:", top_subject)
-                
-                st.markdown("---")
-                st.subheader("📚 Прогрес за окремими предметами:")
-                
-                subject_stats = df_res.groupby("subject").agg(
-                    total_done=("lesson_id", "count"),
-                    avg_pct=("score_percent", "mean")
-                ).reset_index()
-                
-                for _, row in subject_stats.iterrows():
-                    subj_name = row["subject"]
-                    avg_p = int(row["avg_pct"])
-                    count_d = row["total_done"]
-                    
-                    col_s1, col_s2 = st.columns([1, 3])
-                    with col_s1:
-                        st.write(f"**{subj_name}** ({count_d} уроків)")
-                    with col_s2:
-                        st.progress(avg_p / 100.0, text=f"Середня успішність: {avg_p}%")
-                
-                st.markdown("---")
-                st.subheader("📜 Історія закритих тем:")
-                st.dataframe(
-                    df_res[['date', 'subject', 'topic', 'test_mode', 'score_percent', 'score_text', 'completed_at']],
-                    column_config={
-                        "date": "Дата",
-                        "subject": "Предмет",
-                        "topic": "Тема",
-                        "test_mode": "Режим",
-                        "score_percent": st.column_config.ProgressColumn("Результат (%)", format="%d%%", min_value=0, max_value=100),
-                        "score_text": "Бали",
-                        "completed_at": "Час здачі"
-                    },
-                    use_container_width=True
-                )
+# 8. БОКОВЕ
