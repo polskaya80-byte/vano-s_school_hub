@@ -14,7 +14,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Шлях до локального файлу збереження (fallback, якщо немає Google Sheets)
 DATA_FILE = "lessons_data.json"
 
 def load_data():
@@ -27,34 +26,29 @@ def save_data(data):
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
-# Завантажуємо актуальні дані
 db = load_data()
 
 # ---------------------------------------------------------
-# 2. НАЛАШТУВАННЯ GEMINI API
+# 2. РОЗУМНА ГЕНЕРАЦІЯ З НАДІЙНИМ ФОЛБЕКОМ МОДЕЛЕЙ
 # ---------------------------------------------------------
-def get_gemini_model():
-    api_key = st.secrets.get("GEMINI_API_KEY", None)
-    if not api_key:
-        api_key = st.session_state.get("user_gemini_key", "")
+def generate_lesson_with_fallback(prompt, api_key):
+    genai.configure(api_key=api_key)
+    # Список моделей від найновіших до резервних
+    candidate_models = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-flash']
     
-    if api_key:
-        genai.configure(api_key=api_key)
-        # 1. Спроба автоматично знайти найновішу активну модель Flash від Google
+    last_error = None
+    for model_name in candidate_models:
         try:
-            for m in genai.list_models():
-                if 'generateContent' in m.supported_generation_methods and 'flash' in m.name:
-                    return genai.GenerativeModel(m.name)
-        except Exception:
-            pass
-        
-        # 2. Резервний перебір версій, якщо список моделей недоступний
-        for name in ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-flash']:
-            try:
-                return genai.GenerativeModel(name)
-            except Exception:
-                continue
-    return None
+            model = genai.GenerativeModel(model_name)
+            # Реальний запит генерації вмісту
+            response = model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            last_error = e
+            continue
+            
+    raise last_error
+
 # ---------------------------------------------------------
 # 3. БОКОВЕ МЕНЮ (НАВІГАЦІЯ)
 # ---------------------------------------------------------
@@ -62,7 +56,7 @@ st.sidebar.title("🎓 Навчальний Хаб")
 role = st.sidebar.radio("Оберіть режим:", ["🎓 Кабінет Учня", "👩‍🏫 Кабінет Мами"])
 
 st.sidebar.markdown("---")
-st.sidebar.info("Система сімейного навчання 9 класу v2.0 (Автоматизована)")
+st.sidebar.info("Система сімейного навчання 9 класу v2.0")
 
 # =========================================================
 # РЕЖИМ: КАБІНЕТ МАМИ (ГЕНЕРАЦІЯ ТА МОНІТОРИНГ)
@@ -73,7 +67,7 @@ if role == "👩‍🏫 Кабінет Мами":
     tab_gen, tab_dash, tab_settings = st.tabs(["🤖 AI-Генератор Уроків", "📊 Дашборд Успішності", "⚙️ Налаштування Ключів"])
     
     # -----------------------------------------------------
-    # ВКЛАДКА 1: ГЕНЕРАТОР УРОКІВ ЧЕРЕЗ GEMINI API
+    # ВКЛАДКА 1: ГЕНЕРАТОР УРОКІВ
     # -----------------------------------------------------
     with tab_gen:
         st.subheader("Створення нового уроку в 1 клік")
@@ -85,22 +79,23 @@ if role == "👩‍🏫 Кабінет Мами":
                 "Історія України", "Всесвітня історія", "Українська мова", 
                 "Українська література", "Англійська мова", "Географія", "Інформатика"
             ])
-            lesson_date = st.date_input("Дата проведения:", datetime.today())
+            lesson_date = st.date_input("Дата проведення:", datetime.today())
         
         with col2:
-            topic = st.text_input("Тема уроку (з календарного плану):", placeholder="наприклад: Закон Ома для ділянки кола")
-            youtube_url = st.text_input("Посилання на YouTube / Pistacja (опціонально):", placeholder="https://www.youtube.com/watch?v=...")
+            topic = st.text_input("Тема уроку (з календарного плану):", placeholder="наприклад: Чинники розміщення виробництва")
+            youtube_url = st.text_input("Посилання на YouTube / Pistacja (опціонально):", placeholder="https://ua.pistacja.tv/...")
 
-        custom_instructions = st.text_area("Додаткові побажання до уроку (опціонально):", placeholder="наприклад: Зроби акцент на практичних задачах з формулами")
+        custom_instructions = st.text_area("Додаткові побажання до уроку (опціонально):", placeholder="наприклад: Зроби акцент на практичних прикладах")
         
         if st.button("🚀 Згенерувати повноцінний урок", type="primary"):
-            model = get_gemini_model()
-            if not model:
-                st.error("❌ Не налаштовано Gemini API Key! Додайте ключ у вкладці 'Налаштування Ключів'.")
+            api_key = st.secrets.get("GEMINI_API_KEY", None) or st.session_state.get("user_gemini_key", "")
+            
+            if not api_key:
+                st.error("❌ Не налаштовано Gemini API Key! Додайте ключ у вкладці 'Налаштування Ключів' або в Secrets.")
             elif not topic:
                 st.warning("⚠️ Будь ласка, вкажіть тему уроку.")
             else:
-                with st.spinner("🤖 Gemini створює конспект, тести та HTML-тренажер... Зачекайте 10-15 секунд..."):
+                with st.spinner("🤖 Gemini створює конспект, тести та вправи... Зачекайте 10-15 секунд..."):
                     prompt = f"""
                     Ти — професійний учитель та методист для 9 класу української школи.
                     Створи повноцінний інтерактивний урок за наступними параметрами:
@@ -132,12 +127,12 @@ if role == "👩‍🏫 Кабінет Мами":
                                 "explanation": "Пояснення."
                             }}
                         ],
-                        "html_game": "<div style='font-family:sans-serif; text-align:center; padding:15px; background:#f0f2f6; border-radius:10px;'><h3>🎮 Міні-тренажер: Перевірка понять</h3><p>Визначте ключовий термін уроку!</p></div>"
+                        "html_game": "<div style='font-family:sans-serif; text-align:center; padding:15px; background:#f0f2f6; border-radius:10px;'><h3>🎮 Міні-тренажер: Перевірка понять</h3><p>Закріпіть ключові терміни теми!</p></div>"
                     }}
                     """
                     try:
-                        response = model.generate_content(prompt)
-                        clean_text = response.text.strip()
+                        raw_text = generate_lesson_with_fallback(prompt, api_key)
+                        clean_text = raw_text.strip()
                         if clean_text.startswith("```json"):
                             clean_text = clean_text[7:]
                         if clean_text.endswith("```"):
@@ -145,7 +140,6 @@ if role == "👩‍🏫 Кабінет Мами":
                         
                         lesson_content = json.loads(clean_text)
                         
-                        # Зберігаємо урок у базу
                         new_lesson = {
                             "id": f"{subject}_{lesson_date.strftime('%Y%m%d')}_{len(db['lessons'])}",
                             "subject": subject,
@@ -208,30 +202,25 @@ else:
     if not db["lessons"]:
         st.warning("Наразі немає створених уроків. Попросіть маму додати уроки в Кабінеті Мами!")
     else:
-        # Фільтрація уроків за датою
         available_dates = sorted(list(set([l["date"] for l in db["lessons"]])), reverse=True)
         selected_date = st.selectbox("📅 Оберіть дату навчання:", available_dates)
         
-        # Уроки на обрану дату
         day_lessons = [l for l in db["lessons"] if l["date"] == selected_date]
         lesson_subjects = [l["subject"] for l in day_lessons]
         
         selected_subject = st.radio("📚 Оберіть предмет:", lesson_subjects, horizontal=True)
         
-        # Поточний урок
         current_lesson = next((l for l in day_lessons if l["subject"] == selected_subject), None)
         
         if current_lesson:
             st.markdown(f"## {current_lesson['subject']}: {current_lesson['topic']}")
             
-            # Перевіряємо, чи урок вже здано
             already_done = next((r for r in db["results"] if r.get("lesson_id") == current_lesson["id"]), None)
             if already_done:
                 st.success(f"✅ Цей урок вже виконано! Ваш результат: {already_done['score_percent']}% ({already_done['score_text']})")
             
             st.markdown("---")
             
-            # 1. МАТЕРІАЛИ УРОКУ
             st.subheader("📖 1. Теоретичний конспект")
             st.markdown(current_lesson["summary"])
             
@@ -239,12 +228,10 @@ else:
                 st.subheader("🎬 2. Навчальне відео")
                 st.video(current_lesson["youtube_url"])
             
-            # 2. HTML ТРЕНАЖЕР
             if current_lesson.get("html_game"):
                 st.subheader("🎮 3. Інтерактивна вправа / Тренажер")
                 st.components.v1.html(current_lesson["html_game"], height=250, scrolling=True)
             
-            # 3. ТЕСТ САМОПЕРЕВІРКИ
             st.subheader("📝 4. Тест для перевірки знань")
             
             quiz = current_lesson.get("quiz", [])
@@ -277,7 +264,6 @@ else:
                     total_q = len(quiz)
                     score_pct = int((correct_count / total_q) * 100) if total_q > 0 else 100
                     
-                    # Зберігаємо результат
                     result_record = {
                         "lesson_id": current_lesson["id"],
                         "date": current_lesson["date"],
@@ -288,7 +274,6 @@ else:
                         "completed_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     }
                     
-                    # Видаляємо старий результат, якщо він був, і додаємо новий
                     db["results"] = [r for r in db["results"] if r.get("lesson_id") != current_lesson["id"]]
                     db["results"].append(result_record)
                     save_data(db)
